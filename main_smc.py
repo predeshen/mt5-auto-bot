@@ -146,17 +146,20 @@ class SMCController:
         print(f"Press Ctrl+C to shutdown...\n")
         
         last_analysis_time = {}
-        analysis_interval = 300  # Analyze every 5 minutes (SMC is slower than scalping)
+        analysis_interval = 10  # Analyze every 10 seconds for active monitoring
         
         try:
             while self.running:
                 current_time = time.time()
                 
-                # Refresh tradeable symbols periodically
-                if current_time % 3600 < 10:  # Every hour
+                # Refresh tradeable symbols every 10 minutes
+                if not tradeable_symbols or (current_time % 600 < 30):
                     tradeable_symbols = self.smc_strategy.get_tradeable_symbols()
+                    if tradeable_symbols:
+                        print(f"\n✅ Tradeable symbols updated: {', '.join(tradeable_symbols)}")
                 
                 if not tradeable_symbols:
+                    print("\n⏳ No tradeable symbols available. Waiting...")
                     time.sleep(60)  # Wait 1 minute if no symbols
                     continue
                 
@@ -168,6 +171,7 @@ class SMCController:
                         continue
                     
                     last_analysis_time[symbol] = current_time
+                    print(f"\n🔍 Analyzing {symbol}...")
                     
                     try:
                         # Get multi-timeframe candles
@@ -224,48 +228,77 @@ class SMCController:
                         )
                         
                         if signal:
-                            logger.info(f"📊 SMC Signal: {symbol} {signal.direction}")
+                            print(f"\n🎯 SMC Signal: {symbol} {signal.direction} ({signal.order_type})")
+                            logger.info(f"SMC Signal: {symbol} {signal.direction}")
                             self.smc_strategy.log_signal(signal)
                             
-                            # Calculate position size
-                            account_info = self.connection_manager.get_account_info()
-                            if account_info:
-                                # Simple position sizing (can be improved)
-                                risk_amount = account_info.equity * (self.risk_percent / 100)
-                                risk_pips = abs(signal.entry_price - signal.stop_loss)
-                                
-                                symbol_info = mt5.symbol_info(symbol)
-                                if symbol_info:
-                                    lot_size = min(
-                                        risk_amount / (risk_pips * symbol_info.trade_contract_size),
-                                        symbol_info.volume_max
-                                    )
-                                    lot_size = max(lot_size, symbol_info.volume_min)
+                            # Check if we already have pending orders for this symbol
+                            existing_orders = [o for o in self.smc_strategy.pending_order_manager.get_pending_orders() 
+                                             if o.symbol == symbol]
+                            
+                            if len(existing_orders) >= self.smc_strategy.pending_order_manager.max_pending_per_symbol:
+                                print(f"⚠️  Max pending orders reached for {symbol}")
+                                logger.info(f"Max pending orders reached for {symbol}")
+                            else:
+                                # Calculate position size
+                                account_info = self.connection_manager.get_account_info()
+                                if account_info:
+                                    # Simple position sizing (can be improved)
+                                    risk_amount = account_info.equity * (self.risk_percent / 100)
+                                    risk_pips = abs(signal.entry_price - signal.stop_loss)
                                     
-                                    # Place pending order
-                                    ticket = None
-                                    if signal.order_type == "BUY_LIMIT":
-                                        ticket = self.smc_strategy.pending_order_manager.place_buy_limit(
-                                            symbol, signal.entry_price, signal.stop_loss,
-                                            signal.take_profit, lot_size
-                                        )
-                                    elif signal.order_type == "SELL_LIMIT":
-                                        ticket = self.smc_strategy.pending_order_manager.place_sell_limit(
-                                            symbol, signal.entry_price, signal.stop_loss,
-                                            signal.take_profit, lot_size
-                                        )
-                                    elif signal.order_type == "BUY_STOP":
-                                        ticket = self.smc_strategy.pending_order_manager.place_buy_stop(
-                                            symbol, signal.entry_price, signal.stop_loss,
-                                            signal.take_profit, lot_size
-                                        )
-                                    elif signal.order_type == "SELL_STOP":
-                                        ticket = self.smc_strategy.pending_order_manager.place_sell_stop(
-                                            symbol, signal.entry_price, signal.stop_loss,
-                                            signal.take_profit, lot_size
-                                        )
-                                    
-                                    self.smc_strategy.log_trade_execution(signal, ticket)
+                                    symbol_info = mt5.symbol_info(symbol)
+                                    if symbol_info:
+                                        # Calculate lot size based on risk
+                                        pip_value = symbol_info.trade_tick_value
+                                        if risk_pips > 0:
+                                            lot_size = risk_amount / (risk_pips * pip_value * 10)
+                                            lot_size = min(lot_size, symbol_info.volume_max)
+                                            lot_size = max(lot_size, symbol_info.volume_min)
+                                            
+                                            # Round to step
+                                            lot_size = round(lot_size / symbol_info.volume_step) * symbol_info.volume_step
+                                            
+                                            print(f"💰 Position size: {lot_size} lots (Risk: ${risk_amount:.2f})")
+                                            logger.info(f"Calculated lot size: {lot_size} for {symbol}")
+                                            
+                                            # Place pending order
+                                            ticket = None
+                                            if signal.order_type == "BUY_LIMIT":
+                                                ticket = self.smc_strategy.pending_order_manager.place_buy_limit(
+                                                    symbol, signal.entry_price, signal.stop_loss,
+                                                    signal.take_profit, lot_size
+                                                )
+                                            elif signal.order_type == "SELL_LIMIT":
+                                                ticket = self.smc_strategy.pending_order_manager.place_sell_limit(
+                                                    symbol, signal.entry_price, signal.stop_loss,
+                                                    signal.take_profit, lot_size
+                                                )
+                                            elif signal.order_type == "BUY_STOP":
+                                                ticket = self.smc_strategy.pending_order_manager.place_buy_stop(
+                                                    symbol, signal.entry_price, signal.stop_loss,
+                                                    signal.take_profit, lot_size
+                                                )
+                                            elif signal.order_type == "SELL_STOP":
+                                                ticket = self.smc_strategy.pending_order_manager.place_sell_stop(
+                                                    symbol, signal.entry_price, signal.stop_loss,
+                                                    signal.take_profit, lot_size
+                                                )
+                                            
+                                            if ticket:
+                                                print(f"✅ Pending order placed: Ticket #{ticket}")
+                                            else:
+                                                print(f"❌ Failed to place pending order")
+                                            
+                                            self.smc_strategy.log_trade_execution(signal, ticket)
+                                        else:
+                                            logger.error(f"Invalid risk calculation for {symbol}")
+                                    else:
+                                        logger.error(f"Could not get symbol info for {symbol}")
+                                else:
+                                    logger.error("Could not get account info")
+                        else:
+                            logger.info(f"No signal generated for {symbol}")
                         
                         # Perform analysis and display status
                         if "H1" in candles_by_tf:
@@ -280,12 +313,17 @@ class SMCController:
                 if self.smc_strategy:
                     self.smc_strategy.pending_order_manager.manage_pending_orders()
                 
-                # Display pending orders count
+                # Display pending orders
                 pending_orders = self.smc_strategy.pending_order_manager.get_pending_orders()
-                print(f"\n⏳ Pending Orders: {len(pending_orders)}")
+                if pending_orders:
+                    print(f"\n⏳ Active Pending Orders: {len(pending_orders)}")
+                    for order in pending_orders:
+                        print(f"   • {order.symbol} {order.order_type} @ {order.entry_price:.2f} (Ticket: {order.ticket})")
+                else:
+                    print(f"\n⏳ No pending orders")
                 
                 # Sleep before next iteration
-                time.sleep(30)  # Check every 30 seconds
+                time.sleep(10)  # Check every 10 seconds
                 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received")

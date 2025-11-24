@@ -187,19 +187,39 @@ class ApplicationController:
                         # Check if exit signal generated
                         exit_signal = self.strategy.analyze_exit(position, current_price)
                         if exit_signal:
-                            logger.info(f"Exit signal for {position.symbol}: {exit_signal.reason}")
-                            result = self.trade_manager.close_position(position)
-                            if result:
-                                self.display.display_trade_closed(result)
+                            # Check if it's a trailing stop update (not a close)
+                            if exit_signal.direction == "UPDATE_STOP":
+                                logger.info(f"Trailing stop update for {position.symbol}: {exit_signal.reason} - New SL: {exit_signal.stop_loss:.2f}")
+                                # Update the stop loss in MT5
+                                success = self.trade_manager.update_stop_loss(position, exit_signal.stop_loss)
+                                if success:
+                                    print(f"🔄 Trailing stop updated: {position.symbol} SL moved to {exit_signal.stop_loss:.2f}")
+                            else:
+                                # Regular exit signal - close the position
+                                logger.info(f"Exit signal for {position.symbol}: {exit_signal.reason}")
+                                result = self.trade_manager.close_position(position)
+                                if result:
+                                    self.display.display_trade_closed(result)
                 
                 # Look for new entry signals (only if we can open more positions)
                 if self.trade_manager.can_open_new_position() and (current_time - last_scan_time) >= scan_interval:
                     last_scan_time = current_time
                     
                     for symbol in selected_symbols:
-                        # Allow 1 position per symbol at a time
+                        # Get existing positions for this symbol
                         symbol_positions = [p for p in positions if p.symbol == symbol]
-                        if len(symbol_positions) >= 1:
+                        
+                        # Check if we can pyramid (add to winning positions)
+                        can_pyramid = False
+                        if symbol_positions:
+                            # Check if any position is in profit
+                            for pos in symbol_positions:
+                                if pos.profit > 0:  # Position is in profit
+                                    can_pyramid = True
+                                    break
+                        
+                        # Skip if we have positions but none are in profit (wait for profit before pyramiding)
+                        if symbol_positions and not can_pyramid:
                             continue
                         
                         # Get recent candles (M1 for scalping)
@@ -219,18 +239,39 @@ class ApplicationController:
                             # Check for entry signal
                             signal = self.strategy.analyze_entry(symbol, candles)
                             if signal:
+                                # Check if signal direction matches existing positions (only pyramid in same direction)
+                                if symbol_positions:
+                                    # Check if all positions are in the same direction as the signal
+                                    same_direction = all(p.direction == signal.direction for p in symbol_positions)
+                                    if not same_direction:
+                                        continue  # Don't pyramid if directions don't match
+                                
                                 logger.info(f"Entry signal: {signal.symbol} {signal.direction} - {signal.reason}")
                                 
-                                # Calculate position size
+                                # Calculate position size with pyramiding
                                 account_info = self.connection_manager.get_account_info()
                                 if account_info:
-                                    lot_size = self.strategy.calculate_position_size(
+                                    # Calculate base lot size
+                                    base_lot_size = self.strategy.calculate_position_size(
                                         signal.symbol,
                                         account_info.equity,
-                                        self.risk_percent,  # Use configured risk percent
+                                        self.risk_percent,
                                         signal.entry_price,
                                         signal.stop_loss
                                     )
+                                    
+                                    # Apply pyramiding multiplier based on number of existing positions
+                                    if symbol_positions:
+                                        # Double the size for each existing position
+                                        # Position 1: base (0.01)
+                                        # Position 2: base * 2 (0.02)
+                                        # Position 3: base * 4 (0.04)
+                                        # Position 4: base * 8 (0.08)
+                                        pyramid_multiplier = 2 ** len(symbol_positions)
+                                        lot_size = base_lot_size * pyramid_multiplier
+                                        logger.info(f"Pyramiding: {len(symbol_positions)} existing positions, multiplier: {pyramid_multiplier}x")
+                                    else:
+                                        lot_size = base_lot_size
                                     
                                     logger.info(f"Calculated lot size: {lot_size} for {signal.symbol}")
                                     
@@ -238,6 +279,8 @@ class ApplicationController:
                                     position = self.trade_manager.open_position(signal, lot_size)
                                     if position:
                                         self.display.display_trade_opened(position)
+                                        if symbol_positions:
+                                            print(f"🔺 PYRAMIDING: Added {lot_size} lots to {len(symbol_positions)} existing position(s)")
                 
                 # Update status
                 self.display.update_status_line(

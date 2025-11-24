@@ -29,11 +29,11 @@ SMC_CONFIG = {
     
     # Symbol variations for broker-specific mapping
     "symbol_variations": {
-        "US30": ["US30", "US30.cash", "US30Cash", "USTEC", "DJ30", "DJI", "US30.","USA30"],
-        "XAUUSD": ["XAUUSD", "XAUUSD.a", "GOLD", "Gold", "XAU", "XAUUSD."],
-        "US30 FT": ["US30ft", "US30.f", "US30_FUT", "YM", "US30FT","USA30.F"],
-        "NASDAQ": ["NAS100", "USTEC", "NDX", "NASDAQ", "US100", "NAS100.","US100"],
-        "NASDAQ FT": ["NAS100ft", "NAS100.f", "USTEC_FUT", "NQ", "NAS100FT","US100.F"],
+        "US30": ["DJ30", "US30", "US30.cash", "US30Cash", "USTEC", "DJI", "US30.", "USA30"],
+        "XAUUSD": ["XAUUSD", "XAUUSD.a", "GOLD", "Gold", "XAU", "XAUUSD.", "XAUUSD.c"],
+        "US30 FT": ["DJ30ft", "US30ft", "US30.f", "US30_FUT", "YM", "US30FT", "USA30.F", "US30.F"],
+        "NASDAQ": ["NAS100", "USTEC", "NDX", "NASDAQ", "US100", "NAS100.", "US100", "USA100"],
+        "NASDAQ FT": ["NAS100ft", "NAS100.f", "USTEC_FUT", "NQ", "NAS100FT", "US100.F", "USA100.F"],
     },
     
     # Market hours (GMT) - Sunday 23:00 to Friday 22:00 with daily breaks

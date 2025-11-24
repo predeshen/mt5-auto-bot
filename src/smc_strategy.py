@@ -1334,6 +1334,15 @@ class SymbolFilter:
         broker_symbol_names = [s.name for s in all_symbols]
         logger.info(f"Found {len(broker_symbol_names)} symbols on broker")
         
+        # Log potential matches for debugging
+        us30_candidates = [s for s in broker_symbol_names if 'US30' in s.upper() or 'USA30' in s.upper() or 'DJ' in s.upper() or 'DOW' in s.upper()]
+        xau_candidates = [s for s in broker_symbol_names if 'XAU' in s.upper() or 'GOLD' in s.upper()]
+        nas_candidates = [s for s in broker_symbol_names if 'NAS' in s.upper() or 'NDX' in s.upper() or 'US100' in s.upper() or 'USA100' in s.upper()]
+        
+        logger.info(f"US30 candidates: {us30_candidates[:10]}")
+        logger.info(f"XAUUSD candidates: {xau_candidates[:10]}")
+        logger.info(f"NASDAQ candidates: {nas_candidates[:10]}")
+        
         # Map each whitelisted symbol
         for standard_name in self.whitelisted_symbols:
             variations = self.symbol_variations.get(standard_name, [standard_name])
@@ -1341,7 +1350,7 @@ class SymbolFilter:
             # Try to find matching broker symbol
             broker_symbol = None
             for variation in variations:
-                # Exact match (case-insensitive)
+                # Exact match (case-insensitive) - highest priority
                 for bs in broker_symbol_names:
                     if bs.upper() == variation.upper():
                         broker_symbol = bs
@@ -1350,9 +1359,19 @@ class SymbolFilter:
                 if broker_symbol:
                     break
                 
-                # Partial match (case-insensitive)
+                # Partial match (case-insensitive) - but avoid single-letter matches
                 for bs in broker_symbol_names:
-                    if variation.upper() in bs.upper() or bs.upper() in variation.upper():
+                    # Skip if broker symbol is too short (likely incorrect match)
+                    if len(bs) < 3:
+                        continue
+                    
+                    # Check if variation is contained in broker symbol
+                    if len(variation) >= 3 and variation.upper() in bs.upper():
+                        broker_symbol = bs
+                        break
+                    
+                    # Check if broker symbol is contained in variation
+                    if len(bs) >= 3 and bs.upper() in variation.upper():
                         broker_symbol = bs
                         break
                 
@@ -1531,17 +1550,93 @@ class SMCSignalGenerator:
         # Get HTF bias
         htf_bias = self.mtf_analyzer.get_htf_bias(tf_analysis.h4_structure, tf_analysis.h1_structure)
         
+        logger.info(f"HTF Bias for {symbol}: {htf_bias}")
+        
         if htf_bias == "NEUTRAL":
+            logger.info(f"Skipping {symbol}: Neutral bias")
             return None
         
         # Find confluence zones
         confluence_zones = self.mtf_analyzer.find_confluence_zones(tf_analysis)
         
         if not confluence_zones:
+            logger.info(f"No confluence zones found for {symbol}")
+            
+            # Fallback: Use H1 FVGs if available
+            if tf_analysis.h1_fvgs:
+                logger.info(f"Using H1 FVGs as fallback for {symbol}")
+                
+                # Filter FVGs by direction matching bias
+                matching_fvgs = [fvg for fvg in tf_analysis.h1_fvgs 
+                                if (htf_bias == "BULLISH" and fvg.direction == "BULLISH") or
+                                   (htf_bias == "BEARISH" and fvg.direction == "BEARISH")]
+                
+                if not matching_fvgs:
+                    logger.info(f"No matching FVGs for {symbol}")
+                    return None
+                
+                # Get nearest FVG
+                nearest_fvg = min(matching_fvgs, key=lambda fvg: abs(fvg.equilibrium - current_price))
+                
+                # Create signal from FVG
+                if htf_bias == "BULLISH":
+                    entry_price = nearest_fvg.equilibrium
+                    stop_loss = nearest_fvg.low * 0.999
+                    risk = entry_price - stop_loss
+                    take_profit = entry_price + (risk * 2.5)
+                    
+                    order_type = "BUY_LIMIT" if current_price > entry_price else "BUY_STOP"
+                    
+                    signal = SMCSignal(
+                        symbol=symbol,
+                        direction="BUY",
+                        order_type=order_type,
+                        entry_price=entry_price,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        confidence=0.6,
+                        setup_type="FVG_ENTRY",
+                        timeframe_bias={"H4": tf_analysis.h4_bias, "H1": tf_analysis.h1_bias},
+                        zones=[],
+                        timestamp=datetime.now()
+                    )
+                    
+                    if self.validate_signal(signal):
+                        logger.info(f"Generated BUY signal for {symbol} from FVG")
+                        return signal
+                
+                else:  # BEARISH
+                    entry_price = nearest_fvg.equilibrium
+                    stop_loss = nearest_fvg.high * 1.001
+                    risk = stop_loss - entry_price
+                    take_profit = entry_price - (risk * 2.5)
+                    
+                    order_type = "SELL_LIMIT" if current_price < entry_price else "SELL_STOP"
+                    
+                    signal = SMCSignal(
+                        symbol=symbol,
+                        direction="SELL",
+                        order_type=order_type,
+                        entry_price=entry_price,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        confidence=0.6,
+                        setup_type="FVG_ENTRY",
+                        timeframe_bias={"H4": tf_analysis.h4_bias, "H1": tf_analysis.h1_bias},
+                        zones=[],
+                        timestamp=datetime.now()
+                    )
+                    
+                    if self.validate_signal(signal):
+                        logger.info(f"Generated SELL signal for {symbol} from FVG")
+                        return signal
+            
             return None
         
         # Get nearest confluence zone
         nearest_zone = min(confluence_zones, key=lambda z: abs(z.entry_price - current_price))
+        
+        logger.info(f"Nearest confluence zone for {symbol}: {nearest_zone.direction} @ {nearest_zone.entry_price:.2f}")
         
         # Determine if we should enter
         if htf_bias == "BULLISH" and nearest_zone.direction == "BULLISH":
@@ -1571,7 +1666,10 @@ class SMCSignalGenerator:
             )
             
             if self.validate_signal(signal):
+                logger.info(f"Generated BUY signal for {symbol} from confluence")
                 return signal
+            else:
+                logger.info(f"Signal validation failed for {symbol}")
         
         elif htf_bias == "BEARISH" and nearest_zone.direction == "BEARISH":
             # Look for sell setup
@@ -1600,7 +1698,10 @@ class SMCSignalGenerator:
             )
             
             if self.validate_signal(signal):
+                logger.info(f"Generated SELL signal for {symbol} from confluence")
                 return signal
+            else:
+                logger.info(f"Signal validation failed for {symbol}")
         
         return None
     
@@ -1664,6 +1765,7 @@ class SMCSignalGenerator:
         """
         # Check all required fields are populated
         if not signal.entry_price or not signal.stop_loss or not signal.take_profit:
+            logger.warning(f"Signal rejected: Missing required fields (entry={signal.entry_price}, sl={signal.stop_loss}, tp={signal.take_profit})")
             return False
         
         # Check risk-reward ratio
@@ -1671,9 +1773,12 @@ class SMCSignalGenerator:
         reward = abs(signal.take_profit - signal.entry_price)
         
         if risk <= 0:
+            logger.warning(f"Signal rejected: Invalid risk {risk}")
             return False
         
         rr_ratio = reward / risk
+        
+        logger.info(f"Signal validation: RR={rr_ratio:.2f}, Confidence={signal.confidence:.2%}")
         
         if rr_ratio < self.min_rr:
             logger.info(f"Signal rejected: RR {rr_ratio:.2f} < minimum {self.min_rr}")
@@ -1684,6 +1789,7 @@ class SMCSignalGenerator:
             logger.info(f"Signal rejected: Low confidence {signal.confidence}")
             return False
         
+        logger.info(f"Signal validated: {signal.symbol} {signal.direction} @ {signal.entry_price:.2f}")
         return True
 
 
@@ -1722,10 +1828,19 @@ class SMCStrategy:
     def get_tradeable_symbols(self) -> List[str]:
         """Get symbols that are both whitelisted and market is open."""
         available_symbols = self.symbol_filter.get_tradeable_symbols()
-        open_symbols = self.market_hours_manager.get_tradeable_symbols_now()
+        open_standard_symbols = self.market_hours_manager.get_tradeable_symbols_now()
         
-        # Return intersection
-        tradeable = [s for s in available_symbols if self.symbol_filter.get_broker_symbol(s) in open_symbols or s in open_symbols]
+        # Filter available symbols by market hours
+        # available_symbols contains broker symbols, open_standard_symbols contains standard names
+        tradeable = []
+        for broker_symbol in available_symbols:
+            # Find the standard name for this broker symbol
+            for standard_name, mapping in self.symbol_filter.symbol_map.items():
+                if mapping.broker_symbol == broker_symbol:
+                    # Check if this standard symbol's market is open
+                    if standard_name in open_standard_symbols:
+                        tradeable.append(broker_symbol)
+                    break
         
         logger.info(f"Tradeable symbols: {tradeable}")
         return tradeable
@@ -1867,10 +1982,10 @@ class SMCStrategy:
             ticket: Order ticket (None if failed)
         """
         if ticket:
-            logger.info(f"✅ Trade Executed: {signal.symbol} {signal.direction}")
+            logger.info(f"Trade Executed: {signal.symbol} {signal.direction}")
             logger.info(f"   Ticket: {ticket}")
             logger.info(f"   Setup: {signal.setup_type}")
             logger.info(f"   Entry: {signal.entry_price:.2f}")
         else:
-            logger.error(f"❌ Trade Failed: {signal.symbol} {signal.direction}")
+            logger.error(f"Trade Failed: {signal.symbol} {signal.direction}")
             logger.error(f"   Setup: {signal.setup_type}")
