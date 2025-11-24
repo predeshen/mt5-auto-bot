@@ -110,13 +110,14 @@ class TradeManager:
         """Check if new position can be opened."""
         return self.get_position_count() < self._max_positions
     
-    def open_position(self, signal: Signal, size: float) -> Optional[Position]:
+    def open_position(self, signal: Signal, size: float, skip_progressive: bool = False) -> Optional[Position]:
         """
         Open a new trading position.
         
         Args:
             signal: Trading signal with entry details
             size: Position size in lots
+            skip_progressive: Skip progressive sizing (used when pyramiding)
             
         Returns:
             Position object if successful, None otherwise
@@ -130,8 +131,9 @@ class TradeManager:
             logger.warning(msg)
             return None
         
-        # Apply progressive sizing if enabled (per symbol)
-        size = self.get_progressive_lot_size(signal.symbol, size)
+        # Apply progressive sizing if enabled (per symbol) - unless pyramiding
+        if not skip_progressive:
+            size = self.get_progressive_lot_size(signal.symbol, size)
         
         # Validate order parameters
         if size <= 0:

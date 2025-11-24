@@ -275,8 +275,8 @@ class ApplicationController:
                                     
                                     logger.info(f"Calculated lot size: {lot_size} for {signal.symbol}")
                                     
-                                    # Open position
-                                    position = self.trade_manager.open_position(signal, lot_size)
+                                    # Open position (skip progressive sizing since we're pyramiding)
+                                    position = self.trade_manager.open_position(signal, lot_size, skip_progressive=True)
                                     if position:
                                         self.display.display_trade_opened(position)
                                         if symbol_positions:
