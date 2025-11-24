@@ -279,3 +279,285 @@ def test_fvg_alignment_requires_same_direction():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--hypothesis-show-statistics"])
+
+
+# ============================================================================
+# NEW TESTS FOR RELAXED HTF BIAS CALCULATION
+# Feature: smc-bias-relaxation
+# ============================================================================
+
+def test_h1_uptrend_with_h4_ranging():
+    """
+    **Feature: smc-bias-relaxation, Property 1: H1 trend with H4 ranging produces H1 bias**
+    
+    For any market structure where H1 is UPTREND and H4 is RANGING,
+    the HTF bias should be BULLISH.
+    
+    **Validates: Requirements 1.1**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # H4 ranging, H1 uptrend
+    h4_structure = MarketStructure(
+        trend="RANGING",
+        swing_highs=[100, 102, 101],
+        swing_lows=[95, 97, 96]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="UPTREND",
+        swing_highs=[100, 105, 110],
+        swing_lows=[95, 100, 105]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: H1 UPTREND with H4 RANGING should give BULLISH bias
+    assert bias == "BULLISH", \
+        f"H1 UPTREND with H4 RANGING should give BULLISH bias, got {bias}"
+
+
+def test_h1_downtrend_with_h4_ranging():
+    """
+    **Feature: smc-bias-relaxation, Property 2: H1 downtrend with H4 ranging produces bearish bias**
+    
+    For any market structure where H1 is DOWNTREND and H4 is RANGING,
+    the HTF bias should be BEARISH.
+    
+    **Validates: Requirements 1.2**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # H4 ranging, H1 downtrend
+    h4_structure = MarketStructure(
+        trend="RANGING",
+        swing_highs=[100, 102, 101],
+        swing_lows=[95, 97, 96]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="DOWNTREND",
+        swing_highs=[110, 105, 100],
+        swing_lows=[105, 100, 95]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: H1 DOWNTREND with H4 RANGING should give BEARISH bias
+    assert bias == "BEARISH", \
+        f"H1 DOWNTREND with H4 RANGING should give BEARISH bias, got {bias}"
+
+
+def test_both_uptrend_agreement():
+    """
+    **Feature: smc-bias-relaxation, Property 3: Agreement produces agreed bias**
+    
+    For any market structure where both H4 and H1 are UPTREND,
+    the HTF bias should be BULLISH.
+    
+    **Validates: Requirements 1.3, 2.1**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # Both uptrend
+    h4_structure = MarketStructure(
+        trend="UPTREND",
+        swing_highs=[100, 110, 120],
+        swing_lows=[95, 105, 115]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="UPTREND",
+        swing_highs=[115, 118, 120],
+        swing_lows=[112, 115, 117]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: Both UPTREND should give BULLISH bias
+    assert bias == "BULLISH", \
+        f"Both UPTREND should give BULLISH bias, got {bias}"
+
+
+def test_both_downtrend_agreement():
+    """
+    **Feature: smc-bias-relaxation, Property 4: Downtrend agreement produces bearish bias**
+    
+    For any market structure where both H4 and H1 are DOWNTREND,
+    the HTF bias should be BEARISH.
+    
+    **Validates: Requirements 1.4, 2.2**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # Both downtrend
+    h4_structure = MarketStructure(
+        trend="DOWNTREND",
+        swing_highs=[120, 110, 100],
+        swing_lows=[115, 105, 95]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="DOWNTREND",
+        swing_highs=[105, 102, 100],
+        swing_lows=[100, 97, 95]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: Both DOWNTREND should give BEARISH bias
+    assert bias == "BEARISH", \
+        f"Both DOWNTREND should give BEARISH bias, got {bias}"
+
+
+def test_both_ranging_neutral():
+    """
+    **Feature: smc-bias-relaxation, Property 5: Both ranging produces neutral**
+    
+    For any market structure where both H4 and H1 are RANGING,
+    the HTF bias should be NEUTRAL.
+    
+    **Validates: Requirements 1.5**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # Both ranging
+    h4_structure = MarketStructure(
+        trend="RANGING",
+        swing_highs=[100, 102, 101, 103],
+        swing_lows=[95, 97, 96, 98]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="RANGING",
+        swing_highs=[100, 101, 100, 102],
+        swing_lows=[98, 99, 98, 100]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: Both RANGING should give NEUTRAL bias
+    assert bias == "NEUTRAL", \
+        f"Both RANGING should give NEUTRAL bias, got {bias}"
+
+
+def test_h4_uptrend_priority_over_h1_downtrend():
+    """
+    **Feature: smc-bias-relaxation, Property 6: H4 priority on conflict**
+    
+    For any market structure where H4 is UPTREND and H1 is DOWNTREND,
+    the HTF bias should be BULLISH (H4 takes priority).
+    
+    **Validates: Requirements 2.3**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # H4 uptrend, H1 downtrend (conflict)
+    h4_structure = MarketStructure(
+        trend="UPTREND",
+        swing_highs=[100, 110, 120],
+        swing_lows=[95, 105, 115]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="DOWNTREND",
+        swing_highs=[120, 118, 115],
+        swing_lows=[115, 113, 110]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: H4 UPTREND should take priority, giving BULLISH bias
+    assert bias == "BULLISH", \
+        f"H4 UPTREND should take priority over H1 DOWNTREND, got {bias}"
+
+
+def test_h4_downtrend_priority_over_h1_uptrend():
+    """
+    **Feature: smc-bias-relaxation, Property 7: H4 priority on bearish conflict**
+    
+    For any market structure where H4 is DOWNTREND and H1 is UPTREND,
+    the HTF bias should be BEARISH (H4 takes priority).
+    
+    **Validates: Requirements 2.4**
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    # H4 downtrend, H1 uptrend (conflict)
+    h4_structure = MarketStructure(
+        trend="DOWNTREND",
+        swing_highs=[120, 110, 100],
+        swing_lows=[115, 105, 95]
+    )
+    
+    h1_structure = MarketStructure(
+        trend="UPTREND",
+        swing_highs=[100, 102, 105],
+        swing_lows=[95, 97, 100]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Property: H4 DOWNTREND should take priority, giving BEARISH bias
+    assert bias == "BEARISH", \
+        f"H4 DOWNTREND should take priority over H1 UPTREND, got {bias}"
+
+
+@given(
+    h4_trend=st.sampled_from(["UPTREND", "DOWNTREND", "RANGING"]),
+    h1_trend=st.sampled_from(["UPTREND", "DOWNTREND", "RANGING"])
+)
+def test_bias_calculation_comprehensive(h4_trend, h1_trend):
+    """
+    **Feature: smc-bias-relaxation, Comprehensive property test**
+    
+    For any combination of H4 and H1 trends, the bias calculation should
+    follow the priority rules consistently.
+    """
+    fvg_detector = FVGDetector()
+    structure_analyzer = MarketStructureAnalyzer()
+    mtf_analyzer = MultiTimeframeAnalyzer(fvg_detector, structure_analyzer)
+    
+    h4_structure = MarketStructure(
+        trend=h4_trend,
+        swing_highs=[100, 105, 110],
+        swing_lows=[95, 100, 105]
+    )
+    
+    h1_structure = MarketStructure(
+        trend=h1_trend,
+        swing_highs=[108, 109, 110],
+        swing_lows=[106, 107, 108]
+    )
+    
+    bias = mtf_analyzer.get_htf_bias(h4_structure, h1_structure)
+    
+    # Verify bias follows priority rules
+    if h4_trend == "UPTREND" and h1_trend == "UPTREND":
+        assert bias == "BULLISH", "Both uptrend should be BULLISH"
+    elif h4_trend == "DOWNTREND" and h1_trend == "DOWNTREND":
+        assert bias == "BEARISH", "Both downtrend should be BEARISH"
+    elif h4_trend == "UPTREND":
+        assert bias == "BULLISH", "H4 uptrend should take priority"
+    elif h4_trend == "DOWNTREND":
+        assert bias == "BEARISH", "H4 downtrend should take priority"
+    elif h4_trend == "RANGING" and h1_trend == "UPTREND":
+        assert bias == "BULLISH", "H1 uptrend fallback should be BULLISH"
+    elif h4_trend == "RANGING" and h1_trend == "DOWNTREND":
+        assert bias == "BEARISH", "H1 downtrend fallback should be BEARISH"
+    elif h4_trend == "RANGING" and h1_trend == "RANGING":
+        assert bias == "NEUTRAL", "Both ranging should be NEUTRAL"

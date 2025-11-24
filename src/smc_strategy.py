@@ -843,6 +843,12 @@ class MultiTimeframeAnalyzer:
         """
         Get higher timeframe bias from H4 and H1.
         
+        Priority order:
+        1. Both timeframes agree → return agreed direction
+        2. H4 has clear trend → return H4 direction (takes priority)
+        3. H1 has clear trend while H4 ranging → return H1 direction
+        4. Both ranging → return NEUTRAL
+        
         Args:
             h4_data: H4 market structure
             h1_data: H1 market structure
@@ -851,23 +857,41 @@ class MultiTimeframeAnalyzer:
             "BULLISH", "BEARISH", or "NEUTRAL"
         """
         if not h4_data or not h1_data:
+            logger.info("HTF Bias: Missing data (H4 or H1) - returning NEUTRAL")
             return "NEUTRAL"
         
         h4_trend = h4_data.trend
         h1_trend = h1_data.trend
         
+        logger.info(f"HTF Bias Calculation: H4={h4_trend}, H1={h1_trend}")
+        
         # Both timeframes agree
         if h4_trend == "UPTREND" and h1_trend == "UPTREND":
+            logger.info("HTF Bias Decision: BULLISH (both timeframes agree on UPTREND)")
             return "BULLISH"
         elif h4_trend == "DOWNTREND" and h1_trend == "DOWNTREND":
+            logger.info("HTF Bias Decision: BEARISH (both timeframes agree on DOWNTREND)")
             return "BEARISH"
         
-        # H4 takes priority if conflict
+        # H4 takes priority if it has a clear trend
         if h4_trend == "UPTREND":
+            logger.info("HTF Bias Decision: BULLISH (H4 priority - H4 UPTREND)")
             return "BULLISH"
         elif h4_trend == "DOWNTREND":
+            logger.info("HTF Bias Decision: BEARISH (H4 priority - H4 DOWNTREND)")
             return "BEARISH"
         
+        # H1 fallback: if H4 is ranging but H1 has a clear trend
+        if h4_trend == "RANGING":
+            if h1_trend == "UPTREND":
+                logger.info("HTF Bias Decision: BULLISH (H1 fallback - H4 RANGING, H1 UPTREND)")
+                return "BULLISH"
+            elif h1_trend == "DOWNTREND":
+                logger.info("HTF Bias Decision: BEARISH (H1 fallback - H4 RANGING, H1 DOWNTREND)")
+                return "BEARISH"
+        
+        # Both ranging or no clear direction
+        logger.info("HTF Bias Decision: NEUTRAL (both timeframes ranging or unclear)")
         return "NEUTRAL"
     
     def find_confluence_zones(self, tf_analysis: TimeframeAnalysis) -> List[ConfluenceZone]:
