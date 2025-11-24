@@ -215,18 +215,18 @@ class ScalpingStrategy:
         current_price = candles[-1]['close']
         prev_price = candles[-2]['close']
         
-        # Check for sufficient volatility - RELAXED
-        if atr / current_price < 0.0003:  # Reduced from 0.0008 to allow more instruments
+        # Check for sufficient volatility - VERY RELAXED
+        if atr / current_price < 0.0001:  # Very low threshold to allow most instruments
             return None
         
-        # Check for trending market - RELAXED
+        # Check for trending market - VERY RELAXED
         recent_highs = [c['high'] for c in candles[-10:]]
         recent_lows = [c['low'] for c in candles[-10:]]
         price_range = max(recent_highs) - min(recent_lows)
         avg_price = sum(closes[-10:]) / 10
         
-        # If range is too small relative to price, market is choppy - RELAXED
-        if price_range / avg_price < 0.001:  # Reduced from 0.003 to allow more setups
+        # If range is too small relative to price, market is choppy - VERY RELAXED
+        if price_range / avg_price < 0.0005:  # Very low threshold
             return None
         
         # Calculate average volume
@@ -241,10 +241,10 @@ class ScalpingStrategy:
         # All indicators aligned for strong uptrend
         if (adx > self.adx_threshold and  # Trend is strong enough
             plus_di > minus_di and  # Bullish directional movement
-            momentum_fast > 0.08 and  # Fast momentum positive
-            momentum_slow > 0.05 and  # Slow momentum confirms
-            rsi_fast > 40 and rsi_fast < 75 and  # Fast RSI in range
-            rsi_slow > 40 and rsi_slow < 75 and  # Slow RSI confirms
+            momentum_fast > 0.05 and  # Fast momentum positive (relaxed from 0.08)
+            momentum_slow > 0.03 and  # Slow momentum confirms (relaxed from 0.05)
+            rsi_fast > 35 and rsi_fast < 80 and  # Fast RSI in range (wider)
+            rsi_slow > 35 and rsi_slow < 80 and  # Slow RSI confirms (wider)
             current_price > prev_price and  # Price rising
             volume_confirmed):
             
@@ -268,10 +268,10 @@ class ScalpingStrategy:
         # All indicators aligned for strong downtrend
         if (adx > self.adx_threshold and  # Trend is strong enough
             minus_di > plus_di and  # Bearish directional movement
-            momentum_fast < -0.08 and  # Fast momentum negative
-            momentum_slow < -0.05 and  # Slow momentum confirms
-            rsi_fast < 60 and rsi_fast > 25 and  # Fast RSI in range
-            rsi_slow < 60 and rsi_slow > 25 and  # Slow RSI confirms
+            momentum_fast < -0.05 and  # Fast momentum negative (relaxed from -0.08)
+            momentum_slow < -0.03 and  # Slow momentum confirms (relaxed from -0.05)
+            rsi_fast < 65 and rsi_fast > 20 and  # Fast RSI in range (wider)
+            rsi_slow < 65 and rsi_slow > 20 and  # Slow RSI confirms (wider)
             current_price < prev_price and  # Price falling
             volume_confirmed):
             
@@ -293,9 +293,9 @@ class ScalpingStrategy:
         
         # === MODERATE MOMENTUM BUY ===
         # Relaxed conditions when ADX is lower (ranging/weak trend)
-        if (momentum_fast > 0.08 and  # Fast momentum positive
-            (momentum_slow > 0.03 or adx < 20) and  # Slow momentum OR weak trend
-            rsi_fast > 35 and rsi_fast < 80 and  # Fast RSI in range
+        if (momentum_fast > 0.05 and  # Fast momentum positive (relaxed from 0.08)
+            (momentum_slow > 0.02 or adx < 20) and  # Slow momentum OR weak trend
+            rsi_fast > 30 and rsi_fast < 85 and  # Fast RSI in range (wider)
             current_price > prev_price and  # Price rising
             volume_confirmed):
             
@@ -316,9 +316,9 @@ class ScalpingStrategy:
         
         # === MODERATE MOMENTUM SELL ===
         # Relaxed conditions when ADX is lower (ranging/weak trend)
-        if (momentum_fast < -0.08 and  # Fast momentum negative
-            (momentum_slow < -0.03 or adx < 20) and  # Slow momentum OR weak trend
-            rsi_fast < 65 and rsi_fast > 20 and  # Fast RSI in range
+        if (momentum_fast < -0.05 and  # Fast momentum negative (relaxed from -0.08)
+            (momentum_slow < -0.02 or adx < 20) and  # Slow momentum OR weak trend
+            rsi_fast < 70 and rsi_fast > 15 and  # Fast RSI in range (wider)
             current_price < prev_price and  # Price falling
             volume_confirmed):
             
@@ -615,6 +615,32 @@ class ScalpingStrategy:
         # Allow up to 20% of equity per 1% price move
         max_reasonable_lot = min(max_lot, equity / 20)
         lot_size = min(lot_size, max_reasonable_lot)
+        
+        # CRITICAL: Cap based on available margin
+        # Check if we can actually afford this lot size
+        account_info = mt5.account_info()
+        if account_info and account_info.margin_free > 0:
+            # Calculate margin required for this lot size
+            order_type = mt5.ORDER_TYPE_BUY  # Doesn't matter for margin calc
+            margin_required = mt5.order_calc_margin(order_type, symbol, lot_size, entry_price)
+            
+            if margin_required is not None and margin_required > 0:
+                # If we don't have enough margin, reduce lot size
+                if margin_required > account_info.margin_free:
+                    # Calculate max affordable lot size (use 80% of free margin for safety)
+                    affordable_margin = account_info.margin_free * 0.8
+                    affordable_lot = (lot_size * affordable_margin) / margin_required
+                    
+                    # Round down to valid lot step
+                    if lot_step > 0:
+                        affordable_lot = int(affordable_lot / lot_step) * lot_step
+                    
+                    # Ensure still above minimum
+                    if affordable_lot >= min_lot:
+                        lot_size = affordable_lot
+                    else:
+                        # Can't afford even minimum lot
+                        return 0.0  # Signal that we can't trade
         
         # Final validation - ensure it's a valid number
         if lot_size <= 0 or lot_size < min_lot:

@@ -238,6 +238,11 @@ class ApplicationController:
                             
                             # Check for entry signal
                             signal = self.strategy.analyze_entry(symbol, candles)
+                            
+                            # Debug: Log why no signal (every 30 seconds to avoid spam)
+                            if signal is None and (current_time - last_scan_time) >= 30:
+                                logger.debug(f"No signal for {symbol} - checking conditions...")
+                            
                             if signal:
                                 # Check if signal direction matches existing positions (only pyramid in same direction)
                                 if symbol_positions:
@@ -274,6 +279,11 @@ class ApplicationController:
                                         lot_size = base_lot_size
                                     
                                     logger.info(f"Calculated lot size: {lot_size} for {signal.symbol}")
+                                    
+                                    # Check if lot size is valid (not 0 due to insufficient margin)
+                                    if lot_size <= 0:
+                                        logger.warning(f"Cannot open position for {signal.symbol}: Insufficient margin for minimum lot size")
+                                        continue
                                     
                                     # Open position (skip progressive sizing since we're pyramiding)
                                     position = self.trade_manager.open_position(signal, lot_size, skip_progressive=True)
