@@ -132,11 +132,12 @@ class TradeManager:
         filling_type = symbol_info.filling_mode
         
         # Try different filling modes in order of preference
-        if filling_type & mt5.SYMBOL_FILLING_FOK:
+        # Check which filling modes are supported (bit flags)
+        if filling_type & 1:  # FOK (Fill or Kill)
             type_filling = mt5.ORDER_FILLING_FOK
-        elif filling_type & mt5.SYMBOL_FILLING_IOC:
+        elif filling_type & 2:  # IOC (Immediate or Cancel)
             type_filling = mt5.ORDER_FILLING_IOC
-        else:
+        else:  # Return
             type_filling = mt5.ORDER_FILLING_RETURN
         
         request = {
@@ -264,11 +265,12 @@ class TradeManager:
         symbol_info = mt5.symbol_info(position.symbol)
         if symbol_info:
             filling_type = symbol_info.filling_mode
-            if filling_type & mt5.SYMBOL_FILLING_FOK:
+            # Check which filling modes are supported (bit flags)
+            if filling_type & 1:  # FOK (Fill or Kill)
                 type_filling = mt5.ORDER_FILLING_FOK
-            elif filling_type & mt5.SYMBOL_FILLING_IOC:
+            elif filling_type & 2:  # IOC (Immediate or Cancel)
                 type_filling = mt5.ORDER_FILLING_IOC
-            else:
+            else:  # Return
                 type_filling = mt5.ORDER_FILLING_RETURN
         else:
             type_filling = mt5.ORDER_FILLING_RETURN
