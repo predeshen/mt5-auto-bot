@@ -14,8 +14,8 @@ class ScalpingStrategy:
         self.rsi_oversold = 40  # More aggressive - was 30
         self.rsi_overbought = 60  # More aggressive - was 70
         self.atr_period = 20
-        self.profit_target_multiplier = 1.5
-        self.stop_loss_multiplier = 1.0
+        self.profit_target_multiplier = 2.0  # Increased from 1.5 for better R:R
+        self.stop_loss_multiplier = 1.5  # Increased from 1.0 to give more room
         self.trailing_stop_enabled = True
         self.momentum_period = 10  # For momentum calculation
     
@@ -267,20 +267,51 @@ class ScalpingStrategy:
                     reason="STOP_LOSS"
                 )
         
-        # Check time-based exit (5 minutes for scalping)
+        # Implement trailing stop if enabled
+        if self.trailing_stop_enabled:
+            # Calculate profit in pips/points
+            if position.direction == "BUY":
+                profit_distance = current_price - position.entry_price
+                # If in profit by at least 1x ATR, trail stop to breakeven + 50%
+                atr_estimate = abs(position.take_profit - position.entry_price) / self.profit_target_multiplier
+                if profit_distance >= atr_estimate:
+                    # Move stop to breakeven + 50% of profit
+                    new_stop = position.entry_price + (profit_distance * 0.5)
+                    if new_stop > position.stop_loss:
+                        # Update position stop loss (this would need to be done via MT5)
+                        pass  # Trailing stop logic - position.stop_loss would be updated
+            
+            elif position.direction == "SELL":
+                profit_distance = position.entry_price - current_price
+                atr_estimate = abs(position.entry_price - position.take_profit) / self.profit_target_multiplier
+                if profit_distance >= atr_estimate:
+                    new_stop = position.entry_price - (profit_distance * 0.5)
+                    if new_stop < position.stop_loss:
+                        pass  # Trailing stop logic
+        
+        # Check time-based exit (30 minutes for scalping) - only if NOT in profit
         time_open = (datetime.now() - position.open_time).total_seconds() / 60
-        if time_open >= 5:
-            exit_direction = "SELL" if position.direction == "BUY" else "BUY"
-            return Signal(
-                symbol=position.symbol,
-                direction=exit_direction,
-                entry_price=current_price,
-                stop_loss=0,
-                take_profit=0,
-                timestamp=datetime.now(),
-                confidence=0.5,
-                reason="TIME_EXIT"
-            )
+        if time_open >= 30:
+            # Check if position is in profit
+            is_profitable = False
+            if position.direction == "BUY":
+                is_profitable = current_price > position.entry_price
+            else:
+                is_profitable = current_price < position.entry_price
+            
+            # Only close on time if not profitable or very small profit
+            if not is_profitable or abs(position.profit) < 1.0:
+                exit_direction = "SELL" if position.direction == "BUY" else "BUY"
+                return Signal(
+                    symbol=position.symbol,
+                    direction=exit_direction,
+                    entry_price=current_price,
+                    stop_loss=0,
+                    take_profit=0,
+                    timestamp=datetime.now(),
+                    confidence=0.5,
+                    reason="TIME_EXIT"
+                )
         
         return None
     
