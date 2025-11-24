@@ -124,8 +124,19 @@ class ScalpingStrategy:
         current_price = candles[-1]['close']
         prev_price = candles[-2]['close']
         
-        # Check for sufficient volatility
-        if atr / current_price < 0.0005:  # Relaxed from 0.001
+        # Check for sufficient volatility - be more selective
+        if atr / current_price < 0.0008:  # Increased to filter low volatility
+            return None
+        
+        # Check for trending market (avoid choppy/ranging markets)
+        # Calculate if price is trending by checking recent highs/lows
+        recent_highs = [c['high'] for c in candles[-10:]]
+        recent_lows = [c['low'] for c in candles[-10:]]
+        price_range = max(recent_highs) - min(recent_lows)
+        avg_price = sum(closes[-10:]) / 10
+        
+        # If range is too small relative to price, market is choppy
+        if price_range / avg_price < 0.003:  # Less than 0.3% range = choppy
             return None
         
         # Calculate average volume
@@ -136,10 +147,11 @@ class ScalpingStrategy:
         else:
             volume_confirmed = True
         
-        # MOMENTUM-BASED BUY: Upward momentum + RSI rising + price rising
-        if (momentum > 0.05 and  # Positive momentum (relaxed for scalping)
-            rsi > 40 and rsi < 75 and  # RSI in middle-upper range
+        # MOMENTUM-BASED BUY: Strong upward momentum + RSI confirmation + volume
+        if (momentum > 0.15 and  # Stronger momentum required (was 0.05)
+            rsi > 45 and rsi < 70 and  # RSI in favorable range
             current_price > prev_price and  # Price rising
+            current_price > closes[-3] and  # Confirm uptrend (3 candles)
             volume_confirmed):
             
             return Signal(
@@ -149,14 +161,15 @@ class ScalpingStrategy:
                 stop_loss=current_price - (atr * self.stop_loss_multiplier),
                 take_profit=current_price + (atr * self.profit_target_multiplier),
                 timestamp=datetime.now(),
-                confidence=0.75,
+                confidence=0.80,
                 reason="MOMENTUM_BUY"
             )
         
-        # MOMENTUM-BASED SELL: Downward momentum + RSI falling + price falling
-        if (momentum < -0.05 and  # Negative momentum (relaxed for scalping)
-            rsi < 60 and rsi > 25 and  # RSI in middle-lower range
+        # MOMENTUM-BASED SELL: Strong downward momentum + RSI confirmation + volume
+        if (momentum < -0.15 and  # Stronger momentum required (was -0.05)
+            rsi < 55 and rsi > 30 and  # RSI in favorable range
             current_price < prev_price and  # Price falling
+            current_price < closes[-3] and  # Confirm downtrend (3 candles)
             volume_confirmed):
             
             return Signal(
@@ -166,42 +179,11 @@ class ScalpingStrategy:
                 stop_loss=current_price + (atr * self.stop_loss_multiplier),
                 take_profit=current_price - (atr * self.profit_target_multiplier),
                 timestamp=datetime.now(),
-                confidence=0.75,
+                confidence=0.80,
                 reason="MOMENTUM_SELL"
             )
         
-        # REVERSAL BUY: Oversold bounce (keep for extreme conditions)
-        if (rsi < self.rsi_oversold and 
-            current_price > prev_price and  # Starting to bounce
-            volume_confirmed):
-            
-            return Signal(
-                symbol=symbol,
-                direction="BUY",
-                entry_price=current_price,
-                stop_loss=current_price - (atr * self.stop_loss_multiplier),
-                take_profit=current_price + (atr * self.profit_target_multiplier),
-                timestamp=datetime.now(),
-                confidence=0.65,
-                reason="REVERSAL_BUY"
-            )
-        
-        # REVERSAL SELL: Overbought reversal (keep for extreme conditions)
-        if (rsi > self.rsi_overbought and
-            current_price < prev_price and  # Starting to fall
-            volume_confirmed):
-            
-            return Signal(
-                symbol=symbol,
-                direction="SELL",
-                entry_price=current_price,
-                stop_loss=current_price + (atr * self.stop_loss_multiplier),
-                take_profit=current_price - (atr * self.profit_target_multiplier),
-                timestamp=datetime.now(),
-                confidence=0.65,
-                reason="REVERSAL_SELL"
-            )
-        
+        # No reversal signals - only trade with momentum in trending markets
         return None
     
     def analyze_exit(self, position: Position, current_price: float) -> Optional[Signal]:
