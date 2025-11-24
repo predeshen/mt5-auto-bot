@@ -1,0 +1,16 @@
+{
+  "accounts": {
+    "live_vantage": {
+      "name": "Vantage Live Account",
+      "account": 12345678,
+      "password": "your_password_here",
+      "server": "VantageInternational-Live 10"
+    },
+    "demo_vantage": {
+      "name": "Vantage Demo Account",
+      "account": 87654321,
+      "password": "your_password_here",
+      "server": "VantageInternational-Demo"
+    }
+  }
+}
